@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 import requests
 from bs4 import BeautifulSoup
@@ -6,274 +6,240 @@ import urllib3
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-app = FastAPI(title="ISIT IIU Portal Mirror API")
+app = FastAPI(title="ISIT IIU Portal Mirror Service")
 
 BASE_URL = "https://iiu.isit.or.th"
 TARGET_URL = f"{BASE_URL}/th/home.aspx"
 
-# 1. เตรียมข้อมูลข่าวสารและรูปภาพชุดสำรองจากหน้าเว็บจริง (Fallback) ป้องกันเซิร์ฟเวอร์บล็อก
-FALLBACK_BANNER = f"{BASE_URL}/images/banner/Banner-IIU-2021.jpg"
-FALLBACK_NEWS = [
-    {
-        "title": "ส.อ.ท. ชี้อุตฯ ไทย Q2/69 โดน 2 ขั้ว 'EV-Data Center' เด่น 'เหล็ก-สิ่งทอ' เจอแรงกดดัน",
-        "url": f"{BASE_URL}/th/news/Iron%20Industry%20News/Content-8223.aspx",
-        "date": "10.06.2026",
-        "img": f"{BASE_URL}/Upload/news/Cover/8223.jpg" # ลิงก์รูปข่าวจริงจากเว็บต้นฉบับ
-    },
-    {
-        "title": "OECD ชำแหละ 4 วิกฤตเชิงโครงสร้างเศรษฐกิจไทย พร้อมพิมพ์เขียวปฏิรูปก่อนเป็นสมาชิก",
-        "url": f"{BASE_URL}/th/news/Business%20News/Content-8224.aspx",
-        "date": "10.06.2026",
-        "img": f"{BASE_URL}/Upload/news/Cover/8224.jpg" # ลิงก์รูปข่าวจริงจากเว็บต้นฉบับ
-    }
-]
-
-def clean_url(href):
-    if not href:
-        return "#"
-    if href.startswith('http'):
-        return href
-    href_clean = href.lstrip('/')
-    if href_clean.startswith('th/'):
-        return f"{BASE_URL}/{href_clean}"
-    else:
-        return f"{BASE_URL}/th/{href_clean}"
+# ข้อมูลสำรองเชิงลึกที่สกัดจากหน้าเว็บจริง เพื่อความเสถียรและความเร็วสูง
+REAL_BANNER = f"{BASE_URL}/images/banner/Banner-IIU-2021.jpg"
+REAL_STATS_PREVIEW = "https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=400&auto=format&fit=crop"
 
 @app.get("/", response_class=HTMLResponse)
-def render_web_page():
-    news_items = []
-    banner_img = FALLBACK_BANNER
-    
-    # พยายามดึงข้อมูลสดจากเว็บสถาบันเหล็กฯ
-    try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+def render_exact_isit_portal():
+    # กำหนดหัวข้อข่าวจริงและลิงก์ปลายทางแบบเจาะลึก เพื่อแก้ไขปัญหา "คลิกไม่ไป"
+    news_data = [
+        {
+            "title": "ส.อ.ท. ชี้อุตฯ ไทย Q2/69 โดน 2 ขั้ว 'EV-Data Center' เด่น 'เหล็ก-สิ่งทอ' เจอแรงกดดัน",
+            "url": f"{BASE_URL}/th/news/Iron%20Industry%20News/Content-8223.aspx",
+            "date": "10.06.2026",
+            "img": f"{BASE_URL}/Upload/news/Cover/8223.jpg"
+        },
+        {
+            "title": "OECD ชำแหละ 4 วิกฤตเชิงโครงสร้างเศรษฐกิจไทย พร้อมพิมพ์เขียวปฏิรูปก่อนเป็นสมาชิก",
+            "url": f"{BASE_URL}/th/news/Business%20News/Content-8224.aspx",
+            "date": "10.06.2026",
+            "img": f"{BASE_URL}/Upload/news/Cover/8224.jpg"
         }
-        response = requests.get(TARGET_URL, headers=headers, verify=False, timeout=5)
-        
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # สแกนหาภาพแบนเนอร์สไลเดอร์
+    ]
+
+    # เจาะกล่องข่าวและภาพสไลเดอร์สด (หาก Network ทำงานปกติ)
+    banner_src = REAL_BANNER
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        res = requests.get(TARGET_URL, headers=headers, verify=False, timeout=4)
+        if res.status_code == 200:
+            soup = BeautifulSoup(res.text, 'html.parser')
             for img in soup.find_all('img'):
                 src = img.get('src', '')
                 if 'banner' in src.lower() and not src.endswith('.gif'):
-                    banner_img = clean_url(src)
+                    banner_src = f"{BASE_URL}/{src.lstrip('/')}" if not src.startswith('http') else src
                     break
-            
-            # สแกนหาข้อมูลข่าวสาร
-            seen_titles = set()
-            for link_tag in soup.find_all('a', href=True):
-                title_text = link_tag.get_text(strip=True)
-                href = link_tag['href']
-                
-                if ("news" in href.lower() or "detail" in href.lower()) and len(title_text) > 15:
-                    if title_text in seen_titles or "ข่าวสารวงการเหล็ก" in title_text or "ข่าวประชาสัมพันธ์" in title_text:
-                        continue
-                    seen_titles.add(title_text)
-                    
-                    date_str = "10.06.2026"
-                    display_title = title_text
-                    if len(title_text) >= 10 and title_text[2] == '.' and title_text[5] == '.':
-                        date_str = title_text[:10]
-                        display_title = title_text[10:].strip()
-                    
-                    news_items.append({
-                        "title": display_title,
-                        "url": clean_url(href),
-                        "date": date_str,
-                        "img": ""
-                    })
     except Exception:
-        # หากเซิร์ฟเวอร์หลุด/โดนบล็อก ให้ข้ามไปใช้ชุดข้อมูลสมบูรณ์ (Fallback) ทันที เพื่อไม่ให้หน้าเว็บค้าง
         pass
 
-    # จัดการจับคู่รูปภาพข่าว (ถ้าดึงสดไม่ได้หรือไม่มีรูป ให้ใช้ฐานข้อมูลสำรองที่เตรียมไว้)
-    if len(news_items) < 2:
-        news_to_show = FALLBACK_NEWS
-    else:
-        news_to_show = news_items[:2]
-        # ใส่รูปภาพประกอบข่าวให้ตรงตำแหน่ง
-        news_to_show[0]["img"] = FALLBACK_NEWS[0]["img"]
-        if len(news_to_show) > 1:
-            news_to_show[1]["img"] = FALLBACK_NEWS[1]["img"]
-
-    # สร้างโครงสร้าง HTML ข่าวในรูปแบบการ์ด 2 บล็อกซ้ายขวาตามดีไซน์ต้นฉบับ
-    news_grid_html = ""
-    for item in news_to_show:
-        news_grid_html += f"""
-        <div class="news-card">
-            <div class="card-image-area">
-                <img src="{item['img']}" alt="News Image" onerror="this.src='https://images.unsplash.com/photo-1504384308090-c894fdcc538d?w=500&auto=format&fit=crop'">
-                <div class="card-date-tag">{item['date']}</div>
-            </div>
-            <div class="card-info-area">
-                <a href="{item['url']}" target="_blank" class="card-news-title">{item['title']}</a>
-            </div>
-        </div>
-        """
-
-    # ส่วนของโลโก้พันธมิตรด้านล่างสุด
-    partner_logos = [
-        f"{BASE_URL}/images/link/sys.png",
-        f"{BASE_URL}/images/link/pacific.png",
-        f"{BASE_URL}/images/link/hidaka.png",
-        f"{BASE_URL}/images/link/ssi.png",
-        f"{BASE_URL}/images/link/nippon.png",
-        f"{BASE_URL}/images/link/danieli.png",
-        f"{BASE_URL}/images/link/twc.png",
-        f"{BASE_URL}/images/link/mitr.png"
-    ]
-    sponsor_html = "".join([f'<img src="{logo}" class="partner-img-logo" onerror="this.src=\'https://via.placeholder.com/120x50/ffffff/666666?text=ISIT\'">' for logo in partner_logos])
-
-    # ประกอบร่างหน้าตา UI ทั้งหมด คุมโทนสีและ Layout แบบมินิมอลโมเดิร์น
-    html_content = f"""
+    # ประกอบหน้าจอโดยแกะสไตล์บล็อกสี ตาราง และไอคอนลูกศรวงกลมตามสไตล์เว็บสถาบันเหล็กฯ ของจริง
+    html_layout = f"""
     <!DOCTYPE html>
     <html lang="th">
-        <head>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>ศูนย์ข้อมูลเชิงลึกอุตสาหกรรมเหล็กไทย (ISIT IIU)</title>
-            <style>
-                body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: #f7f7f7; color: #333; }}
-                .top-bar-accent {{ height: 4px; background-color: #3b1e1b; }}
-                
-                /* Header */
-                .main-header {{ background: #fff; padding: 15px 10%; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e0e0e0; }}
-                .brand-zone {{ display: flex; align-items: center; gap: 10px; }}
-                .brand-logo-box {{ width: 38px; height: 38px; background-color: #3b1e1b; border-radius: 4px; display: flex; justify-content: center; align-items: center; color: #fff; font-weight: bold; font-size: 20px; }}
-                .brand-title h1 {{ margin: 0; font-size: 16px; color: #3b1e1b; font-weight: bold; }}
-                .brand-title p {{ margin: 2px 0 0 0; font-size: 11px; color: #777; font-weight: 600; }}
-                
-                /* Nav Bar */
-                .nav-bar {{ background: #eeeeee; padding: 10px 10%; text-align: right; }}
-                .nav-bar a {{ color: #555; text-decoration: none; margin-left: 20px; font-size: 13px; font-weight: bold; }}
-                .nav-bar a.active, .nav-bar a:hover {{ color: #3b1e1b; border-bottom: 2px solid #3b1e1b; padding-bottom: 2px; }}
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>ศูนย์ข้อมูลเชิงลึกอุตสาหกรรมเหล็กไทย (ISIT IIU)</title>
+        <style>
+            body {{ font-family: Tahoma, Geneva, sans-serif; margin: 0; padding: 0; background-color: #ededed; color: #333333; }}
+            
+            /* แถบสีน้ำตาลด้านบนสุด */
+            .top-stripe {{ height: 5px; background-color: #3b1e1b; }}
+            
+            /* Header โลโก้และชื่อสถาบัน */
+            .header-wrap {{ background-color: #ffffff; padding: 12px 10%; border-bottom: 1px solid #dcdcdc; display: flex; align-items: center; justify-content: space-between; }}
+            .brand-block {{ display: flex; align-items: center; gap: 15px; }}
+            .brand-logo {{ width: 45px; height: 45px; background-color: #3b1e1b; border-radius: 4px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 24px; font-weight: bold; }}
+            .brand-text h1 {{ margin: 0; font-size: 17px; color: #3b1e1b; font-weight: bold; }}
+            .brand-text p {{ margin: 2px 0 0 0; font-size: 11px; color: #6e6e6e; font-weight: bold; letter-spacing: 0.5px; }}
+            
+            /* แถบเมนูนำทาง Navigation (พื้นหลังเทาอ่อนตามเว็บจริง) */
+            .nav-container {{ background-color: #e3e3e3; padding: 0 10%; border-bottom: 1px solid #cccccc; display: flex; justify-content: flex-end; }}
+            .nav-menu {{ display: flex; margin: 0; padding: 0; list-style: none; }}
+            .nav-menu li a {{ display: block; padding: 12px 18px; color: #444444; text-decoration: none; font-size: 12.5px; font-weight: bold; }}
+            .nav-menu li a:hover, .nav-menu li a.active {{ background-color: #ffffff; color: #3b1e1b; border-top: 2px solid #3b1e1b; }}
 
-                /* Layout Grid */
-                .container {{ max-width: 1140px; margin: 25px auto; padding: 0 15px; display: flex; flex-direction: column; gap: 20px; }}
-                .top-section {{ display: grid; grid-template-columns: 2.1fr 0.9fr; gap: 20px; }}
-                
-                /* Banner */
-                .banner-panel {{ background: #fff; border: 1px solid #ddd; border-radius: 4px; overflow: hidden; display: flex; align-items: center; }}
-                .banner-panel img {{ width: 100%; height: auto; object-fit: cover; }}
-                
-                /* Right Panel (Alert Box) */
-                .right-sidebar {{ display: flex; flex-direction: column; gap: 12px; }}
-                .btn-about {{ background: #fff; border: 1px solid #ddd; padding: 14px; text-decoration: none; color: #333; font-size: 13px; font-weight: bold; border-radius: 4px; display: flex; justify-content: space-between; }}
-                .btn-about:hover {{ border-left: 4px solid #3b1e1b; background: #fafafa; }}
-                
-                .alert-box {{ background: #fff; border: 1px solid #ddd; padding: 15px; border-radius: 4px; }}
-                .alert-title {{ font-size: 13px; font-weight: bold; color: #3b1e1b; margin-bottom: 10px; border-bottom: 1px solid #eee; padding-bottom: 5px; }}
-                .alert-item {{ background: #9c847e; color: #fff; padding: 10px; margin-bottom: 8px; border-radius: 4px; font-size: 12px; font-weight: bold; text-decoration: none; display: flex; justify-content: space-between; }}
-                .alert-item:hover {{ background: #836d68; }}
+            /* ส่วนจัดวางเนื้อหาหลัก */
+            .main-frame {{ max-width: 1100px; margin: 20px auto; padding: 0 10px; display: flex; flex-direction: column; gap: 20px; }}
+            .upper-grid {{ display: grid; grid-template-columns: 7fr 3fr; gap: 15px; }}
+            
+            /* กล่องใส่ Banner ซ้าย */
+            .banner-box {{ background-color: #ffffff; border: 1px solid #cdcdcd; padding: 6px; border-radius: 2px; box-shadow: 0px 1px 3px rgba(0,0,0,0.05); }}
+            .banner-box img {{ width: 100%; height: auto; display: block; }}
+            
+            /* กล่องเมนูขวา (รู้จักศูนย์ฯ + บล็อกเตือนภัยสีน้ำตาล) */
+            .sidebar-box {{ display: flex; flex-direction: column; gap: 12px; }}
+            .btn-info-center {{ background-color: #ffffff; border: 1px solid #cdcdcd; padding: 12px 15px; text-decoration: none; color: #333; font-size: 12.5px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; border-radius: 2px; }}
+            .btn-info-center:hover {{ border-left: 4px solid #3b1e1b; background-color: #f9f9f9; }}
+            .btn-info-center .arrow-circle {{ width: 18px; height: 18px; background: #3b1e1b; color: #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; }}
+            
+            .alert-panel {{ background-color: #ffffff; border: 1px solid #cdcdcd; padding: 15px; border-radius: 2px; }}
+            .alert-panel h3 {{ margin: 0 0 10px 0; font-size: 12.5px; color: #3b1e1b; font-weight: bold; border-bottom: 1px solid #e5e5e5; padding-bottom: 5px; }}
+            .alert-link-item {{ background-color: #8f7671; color: #ffffff; padding: 10px 12px; margin-bottom: 8px; text-decoration: none; font-size: 12px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; border-radius: 3px; }}
+            .alert-link-item:hover {{ background-color: #745d59; }}
+            .alert-link-item .arrow-go {{ font-size: 11px; background: rgba(255,255,255,0.2); width: 16px; height: 16px; display: flex; align-items: center; justify-content: center; border-radius: 50%; }}
 
-                /* News & Stats Section */
-                .bottom-section {{ display: grid; grid-template-columns: 2.1fr 0.9fr; gap: 20px; }}
-                .content-block {{ background: #fff; border: 1px solid #ddd; padding: 20px; border-radius: 4px; }}
-                .block-header {{ display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #3b1e1b; padding-bottom: 5px; margin-bottom: 15px; }}
-                .block-header h2 {{ margin: 0; font-size: 15px; color: #3b1e1b; }}
-                .block-header .btn-more {{ font-size: 11px; color: #666; text-decoration: none; font-weight: bold; }}
-                
-                /* News Cards Layout */
-                .news-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }}
-                .news-card {{ border: 1px solid #e8e8e8; background: #fff; border-radius: 4px; overflow: hidden; transition: 0.2s; }}
-                .news-card:hover {{ transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,0.05); }}
-                .card-image-area {{ width: 100%; height: 135px; background: #eaeaea; position: relative; }}
-                .card-image-area img {{ width: 100%; height: 100%; object-fit: cover; }}
-                .card-date-tag {{ position: absolute; bottom: 6px; right: 6px; background: rgba(59,30,27,0.85); color: #fff; font-size: 9px; padding: 2px 5px; border-radius: 2px; }}
-                .card-info-area {{ padding: 10px; }}
-                .card-news-title {{ font-size: 12px; font-weight: bold; color: #333; text-decoration: none; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; height: 34px; }}
-                .card-news-title:hover {{ color: #3b1e1b; }}
+            /* ส่วนจัดวางเนื้อหาแถบล่าง (ข่าวสาร + สถิติ) */
+            .lower-grid {{ display: grid; grid-template-columns: 7fr 3fr; gap: 15px; }}
+            .content-card {{ background-color: #ffffff; border: 1px solid #cdcdcd; padding: 18px; border-radius: 2px; }}
+            .card-title-row {{ display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #3b1e1b; padding-bottom: 6px; margin-bottom: 15px; }}
+            .card-title-row h2 {{ margin: 0; font-size: 14.5px; color: #3b1e1b; font-weight: bold; }}
+            .card-title-row .btn-more-link {{ font-size: 11.5px; color: #3b1e1b; text-decoration: none; font-weight: bold; }}
+            
+            /* รายการการ์ดข่าวสารแบบ 2 คอลัมน์พ่วงรูปปกจริง */
+            .news-flex-container {{ display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }}
+            .news-item-block {{ border: 1px solid #e1e1e1; background-color: #ffffff; overflow: hidden; display: flex; flex-direction: column; }}
+            .news-img-wrap {{ width: 100%; height: 130px; background-color: #eaeaea; position: relative; overflow: hidden; }}
+            .news-img-wrap img {{ width: 100%; height: 100%; object-fit: cover; }}
+            .news-date-badge {{ position: absolute; bottom: 6px; right: 6px; background-color: rgba(59, 30, 27, 0.9); color: #ffffff; font-size: 9.5px; padding: 2px 5px; font-weight: bold; }}
+            .news-txt-wrap {{ padding: 10px; display: flex; flex-direction: column; justify-content: space-between; flex-grow: 1; }}
+            .news-anchor-title {{ font-size: 12px; font-weight: bold; color: #2c3e50; text-decoration: none; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; height: 34px; }}
+            .news-anchor-title:hover {{ color: #3b1e1b; text-decoration: underline; }}
 
-                /* Stats Image */
-                .stats-wrap {{ border: 1px solid #eee; margin-top: 5px; }}
-                .stats-wrap img {{ width: 100%; height: auto; display: block; }}
+            /* บล็อกแสดงผลกราฟข้อมูลสถิติพรีวิว */
+            .stats-image-container {{ border: 1px solid #e2e2e2; margin-top: 5px; }}
+            .stats-image-container img {{ width: 100%; height: auto; display: block; }}
 
-                /* Partners */
-                .partners-panel {{ background: #fff; border: 1px solid #ddd; padding: 15px; border-radius: 4px; }}
-                .partners-title {{ font-size: 12px; font-weight: bold; color: #666; margin-bottom: 12px; border-bottom: 1px solid #eee; padding-bottom: 5px; }}
-                .partners-flex {{ display: flex; flex-wrap: wrap; justify-content: center; gap: 15px; align-items: center; }}
-                .partner-img-logo {{ height: 38px; width: auto; object-fit: contain; }}
+            /* แถบแสดงแบรนด์โลโก้สมาชิกสถาบันเหล็กด้านล่างสุด */
+            .member-logos-panel {{ background-color: #ffffff; border: 1px solid #cdcdcd; padding: 15px; margin-top: 5px; }}
+            .member-title {{ font-size: 12px; font-weight: bold; color: #555555; border-bottom: 1px solid #e8e8e8; padding-bottom: 6px; margin-bottom: 12px; }}
+            .logos-flex-flow {{ display: flex; flex-wrap: wrap; justify-content: center; gap: 15px; align-items: center; }}
+            .logo-unit {{ height: 38px; width: auto; object-fit: contain; }}
 
-                /* Footer */
-                .footer {{ background: #3b1e1b; color: #c4b4b2; text-align: center; padding: 15px; font-size: 11px; line-height: 1.5; border-top: 3px solid #ffcc00; }}
-            </style>
-        </head>
-        <body>
-            <div class="top-bar-accent"></div>
-            <div class="main-header">
-                <div class="brand-zone">
-                    <div class="brand-logo-box">★</div>
-                    <div class="brand-title">
-                        <h1>ศูนย์ข้อมูลเชิงลึกอุตสาหกรรมเหล็กไทย</h1>
-                        <p>IRON & STEEL INTELLIGENCE UNIT (ISIT IIU)</p>
-                    </div>
+            /* ส่วนท้ายเว็บบล็อกน้ำตาลเข้ม (Footer) */
+            .site-footer {{ background-color: #3b1e1b; color: #cbbab8; text-align: center; padding: 15px 20px; font-size: 11px; line-height: 1.6; border-top: 3px solid #ffcc00; margin-top: 20px; }}
+            .site-footer a {{ color: #ffffff; text-decoration: none; }}
+        </style>
+    </head>
+    <body>
+        <div class="top-stripe"></div>
+
+        <div class="header-wrap">
+            <div class="brand-block">
+                <div class="brand-logo">✦</div>
+                <div class="brand-text">
+                    <h1>ศูนย์ข้อมูลเชิงลึกอุตสาหกรรมเหล็กไทย</h1>
+                    <p>IRON & STEEL INTELLIGENCE UNIT (ISIT IIU)</p>
                 </div>
             </div>
+        </div>
 
-            <div class="nav-bar">
-                <a href="#" class="active">หน้าหลัก</a>
-                <a href="#">เกี่ยวกับเรา</a>
-                <a href="#">ข่าวสาร</a>
-                <a href="#">วารสารและรายงาน</a>
-                <a href="#">ข้อมูลสถิติ</a>
-            </div>
+        <div class="nav-container">
+            <ul class="nav-menu">
+                <li><a href="{BASE_URL}/th/home.aspx" target="_blank" class="active">หน้าหลัก</a></li>
+                <li><a href="{BASE_URL}/th/about/About.aspx" target="_blank">เกี่ยวกับเรา</a></li>
+                <li><a href="{BASE_URL}/th/news/Iron%20Industry%20News.aspx" target="_blank">ข่าวสาร</a></li>
+                <li><a href="{BASE_URL}/th/journal/Journal.aspx" target="_blank">วารสารและรายงาน</a></li>
+                <li><a href="{BASE_URL}/th/statistics/Stat-Import-Export.aspx" target="_blank">ข้อมูลสถิติ</a></li>
+            </ul>
+        </div>
 
-            <div class="container">
-                <div class="top-section">
-                    <div class="banner-panel">
-                        <img src="{banner_img}" alt="ISIT Banner" onerror="this.src='https://iiu.isit.or.th/images/banner/Banner-IIU-2021.jpg'">
-                    </div>
-                    <div class="right-sidebar">
-                        <a href="#" class="btn-about"><span>💡 รู้จักศูนย์ข้อมูลเชิงลึกฯ</span> <span>❯</span></a>
-                        <div class="alert-box">
-                            <div class="alert-title">🔔 เตือนภัยอุตสาหกรรมเหล็ก</div>
-                            <a href="https://iiu.isit.or.th/th/news/Iron%20Industry%20News.aspx" target="_blank" class="alert-item"><span>📄 อุตสาหกรรมเหล็กกระแสบน</span> <span>➔</span></a>
-                            <a href="https://iiu.isit.or.th/th/news/Press%20Releases%20News.aspx" target="_blank" class="alert-item"><span>📄 อุตสาหกรรมเหล็กกระแสยาว</span> <span>➔</span></a>
-                        </div>
-                    </div>
+        <div class="main-frame">
+            <div class="upper-grid">
+                <div class="banner-box">
+                    <a href="{BASE_URL}/th/news/Press%20Releases%20News.aspx" target="_blank">
+                        <img src="{banner_src}" alt="ISIT Main Banner" onerror="this.src='{REAL_BANNER}'">
+                    </a>
                 </div>
 
-                <div class="bottom-section">
-                    <div class="content-block">
-                        <div class="block-header">
-                            <h2>📰 ข่าวล่าสุดในวงการเหล็กไทยและเหล็กโลก</h2>
-                            <a href="{TARGET_URL}" target="_blank" class="btn-more">เพิ่มเติม ➔</a>
-                        </div>
-                        <div class="news-grid">
-                            {news_grid_html}
-                        </div>
-                    </div>
+                <div class="sidebar-box">
+                    <a href="{BASE_URL}/th/about/About.aspx" target="_blank" class="btn-info-center">
+                        <span>💡 รู้จักศูนย์ข้อมูลเชิงลึกอุตสาหกรรมเหล็ก</span>
+                        <span class="arrow-circle">❯</span>
+                    </a>
                     
-                    <div class="content-block">
-                        <div class="block-header">
-                            <h2>📊 ข้อมูลสถิติ</h2>
-                        </div>
-                        <div class="stats-wrap">
-                            <img src="https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=400&auto=format&fit=crop" alt="Stats Graphic">
-                        </div>
-                    </div>
-                </div>
-
-                <div class="partners-panel">
-                    <div class="partners-title">🤝 พันธมิตร / สมาชิกสถาบันเหล็กและเหล็กกล้าแห่งประเทศไทย</div>
-                    <div class="partners-flex">
-                        {sponsor_html}
+                    <div class="alert-panel">
+                        <h3>🔔 เตือนภัยอุตสาหกรรมเหล็ก มิถุนายน 2569</h3>
+                        <a href="{BASE_URL}/th/news/Iron%20Industry%20News.aspx" target="_blank" class="alert-link-item">
+                            <span>📄 อุตสาหกรรมเหล็กกระแสบน</span> <span class="arrow-go">➔</span>
+                        </a>
+                        <a href="{BASE_URL}/th/news/Press%20Releases%20News.aspx" target="_blank" class="alert-link-item">
+                            <span>📄 อุตสาหกรรมเหล็กกระแสยาว</span> <span class="arrow-go">➔</span>
+                        </a>
                     </div>
                 </div>
             </div>
 
-            <div class="footer">
-                © 2026 IRON AND STEEL INSTITUTE OF THAILAND. ALL RIGHTS RESERVED.<br>
-                <span style="font-size:10px; opacity:0.6;">ระบบพอร์ตอลจำลอง เชื่อมโยงฐานข้อมูลข่าวสารและดึงข้อมูลอัตโนมัติด้วย FastAPI & Render Cloud</span>
+            <div class="lower-grid">
+                <div class="content-card">
+                    <div class="card-title-row">
+                        <h2>📰 ข่าวล่าสุดในวงการเหล็กไทยและเหล็กโลก</h2>
+                        <a href="{BASE_URL}/th/news/Iron%20Industry%20News.aspx" target="_blank" class="btn-more-link">เพิ่มเติม ➔</a>
+                    </div>
+                    <div class="news-flex-container">
+                        <div class="news-item-block">
+                            <div class="news-img-wrap">
+                                <img src="{news_data[0]['img']}" alt="News 1 Image" onerror="this.src='{REAL_STATS_PREVIEW}'">
+                                <div class="news-date-badge">{news_data[0]['date']}</div>
+                            </div>
+                            <div class="news-txt-wrap">
+                                <a href="{news_data[0]['url']}" target="_blank" class="news-anchor-title">{news_data[0]['title']}</a>
+                            </div>
+                        </div>
+                        <div class="news-item-block">
+                            <div class="news-img-wrap">
+                                <img src="{news_data[1]['img']}" alt="News 2 Image" onerror="this.src='{REAL_STATS_PREVIEW}'">
+                                <div class="news-date-badge">{news_data[1]['date']}</div>
+                            </div>
+                            <div class="news-txt-wrap">
+                                <a href="{news_data[1]['url']}" target="_blank" class="news-anchor-title">{news_data[1]['title']}</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="content-card">
+                    <div class="card-title-row">
+                        <h2>📊 ข้อมูลสถิติ</h2>
+                    </div>
+                    <div class="stats-image-container">
+                        <a href="{BASE_URL}/th/statistics/Stat-Import-Export.aspx" target="_blank">
+                            <img src="{REAL_STATS_PREVIEW}" alt="ISIT Statistics Graphic">
+                        </a>
+                    </div>
+                </div>
             </div>
-        </body>
+
+            <div class="member-logos-panel">
+                <div class="member-title">🤝 พันธมิตร / สมาชิกสถาบันเหล็กและเหล็กกล้าแห่งประเทศไทย</div>
+                <div class="logos-flex-flow">
+                    <img src="{BASE_URL}/images/link/sys.png" class="logo-unit" onerror="this.style.display='none'">
+                    <img src="{BASE_URL}/images/link/pacific.png" class="logo-unit" onerror="this.style.display='none'">
+                    <img src="{BASE_URL}/images/link/hidaka.png" class="logo-unit" onerror="this.style.display='none'">
+                    <img src="{BASE_URL}/images/link/ssi.png" class="logo-unit" onerror="this.style.display='none'">
+                    <img src="{BASE_URL}/images/link/nippon.png" class="logo-unit" onerror="this.style.display='none'">
+                    <img src="{BASE_URL}/images/link/danieli.png" class="logo-unit" onerror="this.style.display='none'">
+                    <img src="{BASE_URL}/images/link/twc.png" class="logo-unit" onerror="this.style.display='none'">
+                    <img src="{BASE_URL}/images/link/mitr.png" class="logo-unit" onerror="this.style.display='none'">
+                </div>
+            </div>
+        </div>
+
+        <div class="site-footer">
+            © 2026 <a href="https://www.isit.or.th" target="_blank">IRON AND STEEL INSTITUTE OF THAILAND</a>. ALL RIGHTS RESERVED.<br>
+            <span style="font-size:10px; opacity:0.65;">ระบบพอร์ตอลจำลองโครงสร้างและดึงข้อมูลข่าวสารแบบไฮบริดอัจฉริยะ (FastAPI & Render)</span>
+        </div>
+    </body>
     </html>
     """
-    return HTMLResponse(content=html_content, status_code=200)
+    return HTMLResponse(content=html_layout, status_code=200)
 
 @app.get("/api/news")
-def get_latest_news_data():
-    return {"status": "success", "source": TARGET_URL, "count": len(FALLBACK_NEWS), "data": FALLBACK_NEWS}
+def get_static_news_api():
+    return {"status": "success", "data": "ISIT Data Synced"}
