@@ -4,86 +4,64 @@ import requests
 import urllib3
 import io
 
-# ปิดการแจ้งเตือนเรื่อง SSL Certificate
+# ปิดการแจ้งเตือน SSL
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-app = FastAPI(title="ISIT IIU Portal - Ultimate Image Fix")
+app = FastAPI(title="ISIT IIU Portal - Real Image Stream")
 
 BASE_URL = "https://iiu.isit.or.th"
 
 @app.get("/proxy-img")
 def proxy_image(url: str):
     """
-    ฟังก์ชันดาวน์โหลดรูปภาพหลังบ้านเพื่อข้าม Hotlinking Protection
-    พร้อมระบบป้องกันการบล็อกขั้นสูง และ Auto-Fallback หากดึงภาพไม่ได้
+    ฟังก์ชัน Bypass ระบบสกัดกั้นเพื่อดึงรูปภาพจริงจากเซิร์ฟเวอร์หลัก
     """
-    # จำลอง HTTP Headers ให้เหมือนเปิดผ่าน Google Chrome บน Windows จริงๆ
+    # จัดการล้างช่องว่างใน URL เผื่อกรณีลิงก์ฝั่งภาษาไทยมีปัญหา
+    target_url = url.strip()
+    
+    # ชุด Headers ระดับสูงสุด จำลองว่าเป็น Google Chrome บน Windows 11 ของจริง
+    # เพิ่มค่า Sec-Fetch เพื่อให้เซิร์ฟเวอร์ปลายทางมองว่าเป็นการคลิกดูรูปภาพตามปกติ ไม่ใช่บอทดึงข้อมูล
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
         "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
         "Accept-Language": "th-TH,th;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Cache-Control": "no-cache",
+        "Cache-Control": "max-age=0",
         "Connection": "keep-alive",
-        "Referer": "https://iiu.isit.or.th/th/home.aspx"
+        "Referer": "https://iiu.isit.or.th/",
+        "Sec-Ch-Ua": '"Not/A)Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"',
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Ch-Ua-Platform": '"Windows"',
+        "Sec-Fetch-Dest": "image",
+        "Sec-Fetch-Mode": "no-cors",
+        "Sec-Fetch-Site": "same-origin"
     }
     
     try:
-        # ยิงทดสอบดึงภาพจากเว็บหลัก (ตั้ง Timeout ไว้ 5 วินาทีเพื่อไม่ให้หน้าเว็บค้าง)
-        response = requests.get(url, headers=headers, verify=False, timeout=5)
+        # ยิงดึงรูปจริง ( stream=True เพื่อทยอยโหลดข้อมูลดิบป้องกันข้อมูลภาพขาดช่วง)
+        response = requests.get(target_url, headers=headers, verify=False, timeout=10, stream=True)
         
-        if response.status_code == 200 and len(response.content) > 200:
-            return StreamingResponse(io.BytesIO(response.content), media_type=response.headers.get("Content-Type", "image/jpeg"))
-    except Exception:
-        pass # ถ้าดึงภาพไม่สำเร็จหรือโดนบล็อก ให้ข้ามไปใช้ระบบ Fallback ด้านล่างทันที
-        
-    # =========================================================================
-    # ระบบตรรกะ Fallback: ถ้าดึงรูปจากเว็บหลักไม่ได้ "ห้ามปล่อยให้รูปแตก"
-    # ให้เปลี่ยนมาดึงภาพกราฟิกสวยๆ จาก Unsplash/Placeholder แทนตามบริบทของรูปภาพนั้นๆ
-    # =========================================================================
-    fallback_url = "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1000" # ลิงก์เริ่มต้น (ภาพอุตสาหกรรม/เทคโนโลยี)
-    
-    if "banner" in url.lower():
-        # ถ้าเป็นภาพสไลด์แบนเนอร์ ให้ใช้รูปแบนเนอร์กว้างๆ แทน
-        fallback_url = "https://images.unsplash.com/photo-1504384308090-c894fdcc538d?w=1200&q=80" if "2021" in url else "https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?w=1200&q=80"
-    elif "news" in url.lower() or "upload" in url.lower():
-        # ถ้าเป็นภาพประกอบข่าววงการเหล็ก
-        fallback_url = "https://images.unsplash.com/photo-1563986768609-322da13575f3?w=600" if "8223" in url else "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=600"
-    elif "link" in url.lower():
-        # ถ้าเป็นรูปโลโก้พันธมิตรย่อยๆ ด้านล่าง ให้สร้างกรอบข้อความสัญลักษณ์ชั่วคราว
-        fallback_url = "https://placehold.co/150x50/3b1e1b/ffffff?text=Partner"
-
-    try:
-        res = requests.get(fallback_url, timeout=5)
-        return StreamingResponse(io.BytesIO(res.content), media_type="image/jpeg")
-    except Exception:
-        # เคสสุดท้ายจริงๆ ถ้าแม้แต่ Unsplash ก็ล่ม ให้คืนค่าไอคอนว่างเปล่าขนาด 1x1 พิกเซล เพื่อไม่ให้บราวเซอร์โชว์โลโก้รูปแตกสีแดง
-        empty_pixel = b'\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00\x21\xf9\x04\x01\x00\x00\x00\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b'
-        return StreamingResponse(io.BytesIO(empty_pixel), media_type="image/gif")
+        if response.status_code == 200:
+            # คืนค่าไฟล์รูปภาพจริงกลับไปแสดงบนหน้าเว็บทันที
+            return StreamingResponse(
+                io.BytesIO(response.content), 
+                media_type=response.headers.get("Content-Type", "image/jpeg")
+            )
+        else:
+            # หากเซิร์ฟเวอร์ปลายทางส่ง Error code อื่นมา ให้ส่ง Status พังตามจริง
+            raise HTTPException(status_code=response.status_code, detail="Cannot fetch original image")
+            
+    except Exception as e:
+        # หากเชื่อมต่อไม่ได้เลย ให้โยน Error ออกไป
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/", response_class=HTMLResponse)
 def render_exact_isit_portal():
-    # ลิงก์ปลายทางข้อมูลข่าวสาร
-    news_data = [
-        {
-            "title": "ส.อ.ท. ชี้อุตฯ ไทย Q2/69 โดน 2 ขั้ว 'EV-Data Center' เด่น 'เหล็ก-สิ่งทอ' เจอแรงกดดัน",
-            "url": f"{BASE_URL}/th/news/Iron%20Industry%20News/Content-8223.aspx",
-            "date": "10.06.2026",
-            "img": f"{BASE_URL}/Upload/news/Cover/8223.jpg"
-        },
-        {
-            "title": "OECD ชำแหละ 4 วิกฤตเชิงโครงสร้างเศรษฐกิจไทย พร้อมพิมพ์เขียวปฏิรูปก่อนเป็นสมาชิก",
-            "url": f"{BASE_URL}/th/news/Business%20News/Content-8224.aspx",
-            "date": "10.06.2026",
-            "img": f"{BASE_URL}/Upload/news/Cover/8224.jpg"
-        }
-    ]
-
-    # ทำการแปลงลิงก์ทั้งหมดให้วิ่งเข้าสู่ระบบ Proxy ที่ติดตั้งกลไกความปลอดภัยใหม่แล้ว
+    # โครงสร้างชุดข้อมูลและ HTML Layout (คงเดิมตามโครงสร้างสไลเดอร์ที่คุณทำไว้)
     slide1_proxied = f"/proxy-img?url={BASE_URL}/images/banner/Banner-IIU-2021.jpg"
     slide2_proxied = f"/proxy-img?url={BASE_URL}/images/banner/Banner_iiu_01.jpg"
-    news1_proxied = f"/proxy-img?url={news_data[0]['img']}"
-    news2_proxied = f"/proxy-img?url={news_data[1]['img']}"
-    stats_proxied = "/proxy-img?url=https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=500"
+    news1_proxied = f"/proxy-img?url={BASE_URL}/Upload/news/Cover/8223.jpg"
+    news2_proxied = f"/proxy-img?url={BASE_URL}/Upload/news/Cover/8224.jpg"
+    stats_proxied = f"/proxy-img?url={BASE_URL}/images/graph_sample.png" # เปลี่ยนมาใช้สถิติจริงจากเว็บหลักหากมีไฟล์
 
     partner_logos = ["sys.png", "pacific.png", "hidaka.png", "ssi.png", "nippon.png", "danieli.png", "twc.png", "mitr.png"]
     partner_html = ""
@@ -115,9 +93,9 @@ def render_exact_isit_portal():
             .wrapper {{ max-width: 1140px; margin: 20px auto; padding: 0 15px; display: flex; flex-direction: column; gap: 20px; }}
             .section-upper {{ display: grid; grid-template-columns: 7.2fr 2.8fr; gap: 15px; }}
             
-            .slider-block {{ background-color: #ffffff; border: 1px solid #cccccc; padding: 8px; border-radius: 4px; box-shadow: 0px 1px 4px rgba(0,0,0,0.06); overflow: hidden; min-height: 250px; }}
+            .slider-block {{ background-color: #ffffff; border: 1px solid #cccccc; padding: 8px; border-radius: 4px; box-shadow: 0px 1px 4px rgba(0,0,0,0.06); overflow: hidden; min-height: 350px; }}
             .swiper {{ width: 100%; height: 100%; border-radius: 2px; }}
-            .swiper-slide img {{ width: 100%; height: auto; display: block; object-fit: cover; min-height: 250px; }}
+            .swiper-slide img {{ width: 100%; height: auto; display: block; object-fit: cover; }}
             
             .side-block {{ display: flex; flex-direction: column; gap: 12px; }}
             .link-card-btn {{ background-color: #ffffff; border: 1px solid #cccccc; padding: 14px 16px; text-decoration: none; color: #333333; font-size: 13px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; border-radius: 4px; }}
@@ -216,19 +194,19 @@ def render_exact_isit_portal():
                         <div class="news-card-item">
                             <div class="news-thumb">
                                 <img src="{news1_proxied}" alt="News 1">
-                                <div class="date-tag">{news_data[0]['date']}</div>
+                                <div class="date-tag">10.06.2026</div>
                             </div>
                             <div class="news-info">
-                                <a href="{news_data[0]['url']}" target="_blank" class="news-link-title">{news_data[0]['title']}</a>
+                                <a href="{BASE_URL}/th/news/Iron%20Industry%20News/Content-8223.aspx" target="_blank" class="news-link-title">ส.อ.ท. ชี้อุตฯ ไทย Q2/69 โดน 2 ขั้ว 'EV-Data Center' เด่น 'เหล็ก-สิ่งทอ' เจอแรงกดดัน</a>
                             </div>
                         </div>
                         <div class="news-card-item">
                             <div class="news-thumb">
                                 <img src="{news2_proxied}" alt="News 2">
-                                <div class="date-tag">{news_data[1]['date']}</div>
+                                <div class="date-tag">10.06.2026</div>
                             </div>
                             <div class="news-info">
-                                <a href="{news_data[1]['url']}" target="_blank" class="news-link-title">{news_data[1]['title']}</a>
+                                <a href="{BASE_URL}/th/news/Business%20News/Content-8224.aspx" target="_blank" class="news-link-title">OECD ชำแหละ 4 วิกฤตเชิงโครงสร้างเศรษฐกิจไทย พร้อมพิมพ์เขียวปฏิรูปก่อนเป็นสมาชิก</a>
                             </div>
                         </div>
                     </div>
