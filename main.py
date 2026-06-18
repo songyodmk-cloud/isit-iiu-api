@@ -1,24 +1,69 @@
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
+import requests
+import base64
 
-app = FastAPI(title="ISIT IIU Portal - Client Direct Stream")
+app = FastAPI(title="ISIT IIU Portal - Secure Base64 Stream")
 
 BASE_URL = "https://iiu.isit.or.th"
 
+def get_image_as_base64(url: str) -> str:
+    """
+    ฟังก์ชันหลังบ้านสำหรับดาวน์โหลดรูปภาพจากเว็บหลัก 
+    และแปลงให้อยู่ในรูปของรหัสข้อความ Base64 เพื่อป้องกันบราวเซอร์บล็อกรูปภาพข้ามโดเมน
+    """
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        "Accept-Language": "th-TH,th;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache"
+    }
+    try:
+        # พยายามดึงผ่าน https หากไม่สำเร็จจะสลับไปดึงผ่าน http เพื่อป้องกัน Mixed Content บล็อก
+        response = requests.get(url, headers=headers, timeout=5, verify=False)
+        if response.status_code == 200:
+            encoded_string = base64.b64encode(response.content).decode("utf-8")
+            # ตรวจสอบประเภทไฟล์จาก URL เพื่อกำหนด Data URI Mime-type ให้ถูกต้อง
+            mime_type = "image/jpeg"
+            if url.lower().endswith(".png"):
+                mime_type = "image/png"
+            elif url.lower().endswith(".svg"):
+                mime_type = "image/svg+xml"
+            elif url.lower().endswith(".gif"):
+                mime_type = "image/gif"
+                
+            return f"data:{mime_type};base64,{encoded_string}"
+    except Exception:
+        # หากเกิดข้อผิดพลาดในการเชื่อมต่อผ่าน HTTPS ให้ลองดึงผ่าน HTTP แบบธรรมดาแทน
+        try:
+            http_url = url.replace("https://", "http://")
+            response = requests.get(http_url, headers=headers, timeout=5, verify=False)
+            if response.status_code == 200:
+                encoded_string = base64.b64encode(response.content).decode("utf-8")
+                mime_type = "image/jpeg"
+                if url.lower().endswith(".png"): mime_type = "image/png"
+                return f"data:{mime_type};base64,{encoded_string}"
+        except Exception:
+            pass
+            
+    # ส่งรูปภาพโปร่งใสขนาด 1x1 พิกเซลกลับไปเป็นตัวสำรองในกรณีที่เซิร์ฟเวอร์หลักปิดกั้นไอพีดาต้าเซนเตอร์อย่างสมบูรณ์
+    return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+
 @app.get("/", response_class=HTMLResponse)
 def render_exact_isit_portal():
-    # ดึงรูปจาก URL ตรงของสถาบันทั้งหมด โดยไม่ผ่านสคริปต์หลังบ้านที่โดนบล็อกไอพี
-    slide1_url = f"{BASE_URL}/images/banner/Banner-IIU-2021.jpg"
-    slide2_url = f"{BASE_URL}/images/banner/Banner_iiu_01.jpg"
-    news1_url = f"{BASE_URL}/Upload/news/Cover/8223.jpg"
-    news2_url = f"{BASE_URL}/Upload/news/Cover/8224.jpg"
-    stats_url = f"{BASE_URL}/images/graph_sample.png" 
+    # แปลงรูปภาพสำคัญทั้งหมดให้กลายเป็นรหัส Base64 จากฝั่งหลังบ้าน
+    slide1_base64 = get_image_as_base64(f"{BASE_URL}/images/banner/Banner-IIU-2021.jpg")
+    slide2_base64 = get_image_as_base64(f"{BASE_URL}/images/banner/Banner_iiu_01.jpg")
+    news1_base64 = get_image_as_base64(f"{BASE_URL}/Upload/news/Cover/8223.jpg")
+    news2_base64 = get_image_as_base64(f"{BASE_URL}/Upload/news/Cover/8224.jpg")
+    stats_base64 = get_image_as_base64(f"{BASE_URL}/images/graph_sample.png") 
 
     partner_logos = ["sys.png", "pacific.png", "hidaka.png", "ssi.png", "nippon.png", "danieli.png", "twc.png", "mitr.png"]
     partner_html = ""
     for logo in partner_logos:
-        # ใช้ referrerpolicy="no-referrer" เพื่อหลบเลี่ยงระบบบล็อก Hotlinking ของเว็บหลัก
-        partner_html += f'<img src="{BASE_URL}/images/link/{logo}" referrerpolicy="no-referrer" class="partner-logo" alt="Partner">'
+        logo_base64 = get_image_as_base64(f"{BASE_URL}/images/link/{logo}")
+        partner_html += f'<img src="{logo_base64}" class="partner-logo" alt="Partner Logo">'
 
     html_layout = f"""
     <!DOCTYPE html>
@@ -45,10 +90,9 @@ def render_exact_isit_portal():
             .wrapper {{ max-width: 1140px; margin: 20px auto; padding: 0 15px; display: flex; flex-direction: column; gap: 20px; }}
             .section-upper {{ display: grid; grid-template-columns: 7.2fr 2.8fr; gap: 15px; }}
             
-            /* ปรับขนาดบล็อกสไลเดอร์ให้ยืดหยุ่นตามรูปภาพจริง ไม่ให้บีบจนแฟบ */
-            .slider-block {{ background-color: #ffffff; border: 1px solid #cccccc; padding: 8px; border-radius: 4px; box-shadow: 0px 1px 4px rgba(0,0,0,0.06); overflow: hidden; min-height: 200px; }}
+            .slider-block {{ background-color: #ffffff; border: 1px solid #cccccc; padding: 8px; border-radius: 4px; box-shadow: 0px 1px 4px rgba(0,0,0,0.06); overflow: hidden; min-height: 280px; }}
             .swiper {{ width: 100%; height: 100%; border-radius: 2px; }}
-            .swiper-slide img {{ width: 100%; height: auto; display: block; object-fit: contain; max-height: 400px; margin: 0 auto; }}
+            .swiper-slide img {{ width: 100%; height: auto; display: block; object-fit: contain; max-height: 380px; margin: 0 auto; }}
             
             .side-block {{ display: flex; flex-direction: column; gap: 12px; }}
             .link-card-btn {{ background-color: #ffffff; border: 1px solid #cccccc; padding: 14px 16px; text-decoration: none; color: #333333; font-size: 13px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; border-radius: 4px; }}
@@ -79,7 +123,7 @@ def render_exact_isit_portal():
             .partners-panel {{ background-color: #ffffff; border: 1px solid #cccccc; padding: 15px; border-radius: 4px; }}
             .partners-title {{ font-size: 12.5px; font-weight: bold; color: #555555; border-bottom: 1px solid #eef0f2; padding-bottom: 8px; margin-bottom: 12px; }}
             .partners-flex {{ display: flex; flex-wrap: wrap; justify-content: center; gap: 18px; align-items: center; }}
-            .partner-logo {{ height: 38px; width: auto; object-fit: contain; }}
+            .partner-logo {{ height: 35px; width: auto; object-fit: contain; }}
 
             .footer-strip {{ background-color: #3b1e1b; color: #d0c4c2; text-align: center; padding: 18px 20px; font-size: 11.5px; line-height: 1.6; border-top: 4px solid #ffcc00; margin-top: 30px; }}
             .footer-strip a {{ color: #ffffff; text-decoration: none; }}
@@ -113,10 +157,10 @@ def render_exact_isit_portal():
                     <div class="swiper mySwiper">
                         <div class="swiper-wrapper">
                             <div class="swiper-slide">
-                                <img src="{slide1_url}" referrerpolicy="no-referrer" alt="Banner Slide 1">
+                                <img src="{slide1_base64}" alt="Banner Slide 1">
                             </div>
                             <div class="swiper-slide">
-                                <img src="{slide2_url}" referrerpolicy="no-referrer" alt="Banner Slide 2">
+                                <img src="{slide2_base64}" alt="Banner Slide 2">
                             </div>
                         </div>
                         <div class="swiper-pagination"></div>
@@ -146,7 +190,7 @@ def render_exact_isit_portal():
                     <div class="news-grid">
                         <div class="news-card-item">
                             <div class="news-thumb">
-                                <img src="{news1_url}" referrerpolicy="no-referrer" alt="News 1">
+                                <img src="{news1_base64}" alt="News 1">
                                 <div class="date-tag">10.06.2026</div>
                             </div>
                             <div class="news-info">
@@ -155,7 +199,7 @@ def render_exact_isit_portal():
                         </div>
                         <div class="news-card-item">
                             <div class="news-thumb">
-                                <img src="{news2_url}" referrerpolicy="no-referrer" alt="News 2">
+                                <img src="{news2_base64}" alt="News 2">
                                 <div class="date-tag">10.06.2026</div>
                             </div>
                             <div class="news-info">
@@ -170,7 +214,7 @@ def render_exact_isit_portal():
                         <h2>📊 ข้อมูลสถิติ</h2>
                     </div>
                     <div class="stats-container">
-                        <img src="{stats_url}" referrerpolicy="no-referrer" alt="Stats">
+                        <img src="{stats_base64}" alt="Stats Graph">
                     </div>
                 </div>
             </div>
@@ -192,7 +236,7 @@ def render_exact_isit_portal():
             var swiper = new Swiper(".mySwiper", {{
                 loop: true,
                 autoplay: {{
-                    delay: 3500,
+                    delay: 4000,
                     disableOnInteraction: false,
                 }},
                 pagination: {{
