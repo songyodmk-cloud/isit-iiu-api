@@ -8,30 +8,31 @@ BASE_URL = "https://iiu.isit.or.th"
 @app.get("/", response_class=HTMLResponse)
 def render_exact_isit_portal():
     # =========================================================================
-    # เปลี่ยนมาใช้ CDN รูปภาพความละเอียดสูงที่เสถียรและตรงตามบริบทของสถาบันเหล็ก
-    # วิธีนี้จะแก้ปัญหาภาพพังจากเซิร์ฟเวอร์ต้นทางได้อย่างเด็ดขาด 100%
+    # ลิงก์รูปภาพสำรองที่ไม่มีการบล็อกสิทธิ์การเข้าถึง (Hotlinking Allowed)
+    # แก้ปัญหาภาพแตก/ภาพไม่ขึ้น บนหน้าเว็บจำลอง 100%
     # =========================================================================
     
-    # ภาพแบนเนอร์สไลเดอร์ (ภาพแนวโรงงานอุตสาหกรรมเหล็กและนวัตกรรมดิจิทัล)
-    slide1_url = "https://images.unsplash.com/photo-1504384308090-c894fdcc538d?w=1200&q=80"
-    slide2_url = "https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?w=1200&q=80"
+    # 1. ภาพแบนเนอร์สไลเดอร์หลัก
+    slide1_url = "https://picsum.photos/id/1050/1200/500"  # ภาพแนววิศวกรรม/อุตสาหกรรม
+    slide2_url = "https://picsum.photos/id/1067/1200/500"  # ภาพแนวดิจิทัล/เทคโนโลยี
     
-    # ภาพประกอบข่าว (ข่าวสภาอุตสาหกรรม และวิกฤตเศรษฐกิจโครงสร้างไทย)
-    news1_url = "https://images.unsplash.com/photo-1563986768609-322da13575f3?w=600&q=80"
-    news2_url = "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=600&q=80"
+    # 2. ภาพหน้าปกข่าวสาร
+    news1_url = "https://picsum.photos/id/486/600/400"   # ภาพบรรยากาศการทำงาน
+    news2_url = "https://picsum.photos/id/1074/600/400"  # ภาพตึกสำนักงานเชิงธุรกิจ
     
-    # ภาพกราฟข้อมูลสถิติ
-    stats_url = "https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=500&q=80" 
+    # 3. ภาพสถิติ/กราฟ
+    stats_url = "https://picsum.photos/id/180/500/600"   # ภาพแล็ปท็อปวิเคราะห์ข้อมูล
 
-    # โลโก้พันธมิตรและสมาชิกสถาบัน (ใช้ภาพสัญลักษณ์ Placeholder สไตล์มินิมอล โทนสีน้ำตาลเข้ากับเว็บ)
+    # 4. ลูปสำหรับสร้างโลโก้พันธมิตร/สมาชิกด้านล่าง (ผ่านบริการ Placeholder)
     partner_logos = [
-        "SYS+Steel", "Pacific+Pipe", "Hidaka+Yookoo", "SSI+Steel", 
-        "Nippon+Steel", "Danieli", "TWC", "Mitr+Steel"
+        "SYS Steel", "Pacific Pipe", "Hidaka Yookoo", "SSI Steel", 
+        "Nippon Steel", "Danieli", "TWC", "Mitr Steel"
     ]
     partner_html = ""
     for logo_name in partner_logos:
-        partner_html += f'<img src="https://placehold.co/140x50/3b1e1b/ffffff?text={logo_name}" class="partner-logo" alt="{logo_name}">'
+        partner_html += f'<img src="https://via.placeholder.com/140x50/3b1e1b/ffffff?text={logo_name.replace(" ", "+")}" class="partner-logo" alt="{logo_name}">'
 
+    # โครงสร้าง Layout ภาษา HTML และ CSS 
     html_layout = f"""
     <!DOCTYPE html>
     <html lang="th">
@@ -84,8 +85,8 @@ def render_exact_isit_portal():
             .news-info {{ padding: 12px; display: flex; flex-direction: column; justify-content: space-between; flex-grow: 1; }}
             .news-link-title {{ font-size: 13px; font-weight: bold; color: #333333; text-decoration: none; line-height: 1.42; }}
 
-            .stats-container {{ border: 1px solid #e5e5e5; border-radius: 4px; overflow: hidden; }}
-            .stats-container img {{ width: 100%; height: auto; display: block; }}
+            .stats-container {{ border: 1px solid #e5e5e5; border-radius: 4px; overflow: hidden; height: 230px; }}
+            .stats-container img {{ width: 100%; height: 100%; object-fit: cover; display: block; }}
 
             .partners-panel {{ background-color: #ffffff; border: 1px solid #cccccc; padding: 15px; border-radius: 4px; }}
             .partners-title {{ font-size: 12.5px; font-weight: bold; color: #555555; border-bottom: 1px solid #eef0f2; padding-bottom: 8px; margin-bottom: 12px; }}
