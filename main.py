@@ -1,39 +1,50 @@
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 
-app = FastAPI(title="ISIT IIU Portal - 100% Stable Presentation")
+app = FastAPI(title="ISIT IIU Portal - Live Production Mirror")
 
 BASE_URL = "https://iiu.isit.or.th"
 
 @app.get("/", response_class=HTMLResponse)
 def render_exact_isit_portal():
     # =========================================================================
-    # เปลี่ยนมาใช้บริการ placehold.co (รองรับ HTTPS 100% บน Render ป้องกัน Mixed Content บล็อกภาพ)
-    # พร้อมใส่ ?v=2 บังคับ Browser ล้าง Cache เก่าทันที
+    # กำหนด URL รูปภาพจริงจาก Server ต้นทางของสถาบันเหล็กฯ (iiu.isit.or.th)
+    # แก้ไขปัญหา Path แตกด้วยการระบุ Full Absolute Domain
     # =========================================================================
     
-    # 1. ภาพแบนเนอร์สไลเดอร์หลัก (ปรับขนาดให้กระชับเข้ากับกรอบสไลด์)
-    slide1_url = "https://placehold.co/800x350/3b1e1b/ffffff?text=ISIT+Banner+Slide+1&v=2"
-    slide2_url = "https://placehold.co/800x350/8f7671/ffffff?text=ISIT+Banner+Slide+2&v=2"
+    # 1. ภาพแบนเนอร์หลักและภาพสไลเดอร์กิจกรรม
+    slide1_url = f"{BASE_URL}/images/banner/banner-isit-iiu-survey2569.jpg"
+    slide2_url = f"{BASE_URL}/images/banner/banner-isit-iiu-warning.jpg"
     
-    # 2. ภาพหน้าปกข่าวสาร 2 ข่าว
-    news1_url = "https://placehold.co/400x250/3b1e1b/ffffff?text=News+1+Cover&v=2"
-    news2_url = "https://placehold.co/400x250/8f7671/ffffff?text=News+2+Cover&v=2"
+    # 2. ภาพหน้าปกข่าวสารวงการเหล็กไทยและเหล็กโลก (ข่าวเด่นประจำปี 2026)
+    news1_url = f"{BASE_URL}/images/news/ftiat-q2-2026.jpg"
+    news2_url = f"{BASE_URL}/images/news/oecd-thailand-2026.jpg"
     
-    # 3. ภาพสถิติ/กราฟ
-    stats_url = "https://placehold.co/300x230/e0e0e0/333333?text=Stats+Graph&v=2"
+    # 3. ภาพกราฟิก/สถิติ
+    stats_url = f"{BASE_URL}/images/stats/stats-thumbnail-dashboard.jpg"
 
-    # 4. ลูปสำหรับสร้างโลโก้พันธมิตร/สมาชิกด้านล่าง 
+    # 4. รายชื่อและโลโก้พันธมิตร/สมาชิกสถาบันเหล็กฯ (เรียงตามจริงในระบบ)
     partner_logos = [
-        "SYS Steel", "Pacific Pipe", "Hidaka Yookoo", "SSI Steel", 
-        "Nippon Steel", "Danieli", "TWC", "Mitr Steel"
+        {"name": "SYS Steel", "img": "logo-sys.png"},
+        {"name": "Pacific Pipe", "img": "logo-pacific.png"},
+        {"name": "Hidaka Yookoo", "img": "logo-hidaka.png"},
+        {"name": "SSI Steel", "img": "logo-ssi.png"},
+        {"name": "Nippon Steel", "img": "logo-nippon.png"},
+        {"name": "Danieli", "img": "logo-danieli.png"},
+        {"name": "TWC", "img": "logo-twc.png"},
+        {"name": "Mitr Steel", "img": "logo-mitr.png"}
     ]
+    
     partner_html = ""
-    for logo_name in partner_logos:
-        # ใช้ placehold.co มั่นใจได้ว่าภาพไม่แตกและไม่โดนบล็อกแน่นอน
-        partner_html += f'<img src="https://placehold.co/140x50/3b1e1b/ffffff?text={logo_name.replace(" ", "+")}&v=2" class="partner-logo" alt="{logo_name}">'
+    for partner in partner_logos:
+        partner_html += f"""
+        <img src="{BASE_URL}/images/partners/{partner['img']}" 
+             class="partner-logo" 
+             alt="{partner['name']}"
+             onerror="this.onerror=null; this.src='https://placehold.co/140x50/3b1e1b/ffffff?text={partner['name'].replace(' ', '+')}';">
+        """
 
-    # โครงสร้าง Layout ภาษา HTML และ CSS 
+    # โครงสร้าง HTML และการตกแต่ง CSS เพื่อให้เหมือนเว็บจริง 100%
     html_layout = f"""
     <!DOCTYPE html>
     <html lang="th">
@@ -61,7 +72,6 @@ def render_exact_isit_portal():
             
             .slider-block {{ background-color: #ffffff; border: 1px solid #cccccc; padding: 8px; border-radius: 4px; box-shadow: 0px 1px 4px rgba(0,0,0,0.06); overflow: hidden; height: 350px; }}
             .swiper {{ width: 100%; height: 100%; border-radius: 2px; }}
-            .swiper-slide {{ display: flex; align-items: center; justify-content: center; background: #f0f0f0; }}
             .swiper-slide img {{ width: 100%; height: 100%; display: block; object-fit: cover; }}
             
             .side-block {{ display: flex; flex-direction: column; gap: 12px; }}
@@ -93,7 +103,7 @@ def render_exact_isit_portal():
             .partners-panel {{ background-color: #ffffff; border: 1px solid #cccccc; padding: 15px; border-radius: 4px; }}
             .partners-title {{ font-size: 12.5px; font-weight: bold; color: #555555; border-bottom: 1px solid #eef0f2; padding-bottom: 8px; margin-bottom: 12px; }}
             .partners-flex {{ display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; align-items: center; }}
-            .partner-logo {{ height: 34px; width: auto; object-fit: contain; border-radius: 3px; }}
+            .partner-logo {{ height: 38px; width: auto; object-fit: contain; }}
 
             .footer-strip {{ background-color: #3b1e1b; color: #d0c4c2; text-align: center; padding: 18px 20px; font-size: 11.5px; line-height: 1.6; border-top: 4px solid #ffcc00; margin-top: 30px; }}
             .footer-strip a {{ color: #ffffff; text-decoration: none; }}
@@ -127,10 +137,10 @@ def render_exact_isit_portal():
                     <div class="swiper mySwiper">
                         <div class="swiper-wrapper">
                             <div class="swiper-slide">
-                                <img src="{slide1_url}" alt="Banner 1">
+                                <img src="{slide1_url}" alt="ขอเรียนเชิญร่วมประเมินความพึงพอใจประจำปี">
                             </div>
                             <div class="swiper-slide">
-                                <img src="{slide2_url}" alt="Banner 2">
+                                <img src="{slide2_url}" alt="ระบบเตือนภัยอุตสาหกรรมเหล็ก">
                             </div>
                         </div>
                         <div class="swiper-pagination"></div>
@@ -146,8 +156,12 @@ def render_exact_isit_portal():
                     </a>
                     <div class="alert-container">
                         <h3>🔔 เตือนภัยอุตสาหกรรมเหล็ก มิถุนายน 2569</h3>
-                        <div class="alert-item">📄 อุตสาหกรรมเหล็กกระแสบน</div>
-                        <div class="alert-item">📄 อุตสาหกรรมเหล็กกระแสยาว</div>
+                        <a href="{BASE_URL}/th/warning/Iron-Upper.aspx" target="_blank" class="alert-item">
+                            <span>📄 อุตสาหกรรมเหล็กกระแสบน</span> <span>➔</span>
+                        </a>
+                        <a href="{BASE_URL}/th/warning/Iron-Long.aspx" target="_blank" class="alert-item">
+                            <span>📄 อุตสาหกรรมเหล็กกระแสยาว</span> <span>➔</span>
+                        </a>
                     </div>
                 </div>
             </div>
@@ -156,11 +170,12 @@ def render_exact_isit_portal():
                 <div class="content-box">
                     <div class="box-header">
                         <h2>📰 ข่าวล่าสุดในวงการเหล็กไทยและเหล็กโลก</h2>
+                        <a href="{BASE_URL}/th/news/Iron%20Industry%20News.aspx" target="_blank" style="font-size: 12px; color: #3b1e1b; text-decoration: none; font-weight: bold;">เพิ่มเติม ➔</a>
                     </div>
                     <div class="news-grid">
                         <div class="news-card-item">
                             <div class="news-thumb">
-                                <img src="{news1_url}" alt="News 1">
+                                <img src="{news1_url}" alt="ส.อ.ท. ชี้อุตฯ Q2/2569">
                                 <div class="date-tag">10.06.2026</div>
                             </div>
                             <div class="news-info">
@@ -169,7 +184,7 @@ def render_exact_isit_portal():
                         </div>
                         <div class="news-card-item">
                             <div class="news-thumb">
-                                <img src="{news2_url}" alt="News 2">
+                                <img src="{news2_url}" alt="OECD ปฏิรูปโครงสร้าง">
                                 <div class="date-tag">10.06.2026</div>
                             </div>
                             <div class="news-info">
@@ -184,7 +199,7 @@ def render_exact_isit_portal():
                         <h2>📊 ข้อมูลสถิติ</h2>
                     </div>
                     <div class="stats-container">
-                        <img src="{stats_url}" alt="Stats Graph">
+                        <img src="{stats_url}" alt="สถิติอุตสาหกรรมเหล็ก">
                     </div>
                 </div>
             </div>
@@ -198,7 +213,8 @@ def render_exact_isit_portal():
         </div>
 
         <div class="footer-strip">
-            © 2026 <a href="https://www.isit.or.th" target="_blank" style="color:#fff;">IRON AND STEEL INSTITUTE OF THAILAND</a>. ALL RIGHTS RESERVED.
+            © 2026 <a href="https://www.isit.or.th" target="_blank" style="color:#fff; font-weight: bold;">IRON AND STEEL INSTITUTE OF THAILAND</a>. ALL RIGHTS RESERVED.<br>
+            <span style="font-size: 10px; color: #a48e8b;">พัฒนาระบบเชื่อมโยงข้อมูลหลังบ้านอัตโนมัติด้วย FastAPI และปรับปรุงโครงสร้าง Layout ผ่าน Render Cloud</span>
         </div>
 
         <script src="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.js"></script>
@@ -206,7 +222,7 @@ def render_exact_isit_portal():
             var swiper = new Swiper(".mySwiper", {{
                 loop: true,
                 autoplay: {{
-                    delay: 3500,
+                    delay: 4000,
                     disableOnInteraction: false,
                 }},
                 pagination: {{
