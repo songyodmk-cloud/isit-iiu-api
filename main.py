@@ -1,55 +1,65 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse, StreamingResponse
 import httpx
 
-app = FastAPI(title="ISIT IIU Portal - Live Image Proxy Mirror")
+app = FastAPI(title="ISIT IIU Portal - Live Streaming Proxy Fix")
 
 BASE_URL = "https://iiu.isit.or.th"
 
 # =========================================================================
-# 🛠️ IMAGE PROXY ROUTE: แก้ไขปัญหาภาพแตก/ภาพไม่มาจากเซิร์ฟเวอร์ดั้งเดิม
-# ทำหน้าที่ดาวน์โหลดภาพจาก ISIT ดั้งเดิมหลังบ้าน แล้วส่งต่อให้หน้าเว็บแสดงผล
+# 🔄 AUTOMATIC IMAGE PROXY ENGINE (ดึงภาพสดจากเว็บหลักมาแสดงผลอัตโนมัติ)
 # =========================================================================
-@app.get("/proxy-image")
-async def proxy_image(path: str):
-    # ป้องกันการใส่ path สลับซับซ้อนเกินไป
+@app.get("/get-isit-image")
+async def get_isit_image(path: str = Query(..., description="Relative path to the image on ISIT server")):
+    # คลีนตัวแปร path เผื่อมีเครื่องหมาย / ซ้ำซ้อน
     clean_path = path.lstrip("/")
     target_url = f"{BASE_URL}/{clean_path}"
     
-    # จำลอง Header ให้เหมือนเบราว์เซอร์ปกติเปิดดู เพื่อเลี่ยงการโดนบล็อก
+    # HTTP Headers: จุดสำคัญที่ทำให้เซิร์ฟเวอร์ ISIT ยอมส่งภาพให้โดยไม่บล็อก
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Referer": BASE_URL
+        "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        "Accept-Language": "th-TH,th;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Referer": f"{BASE_URL}/",
+        "Connection": "keep-alive"
     }
     
-    async with httpx.AsyncClient() as client:
+    # เปิดการเชื่อมต่อแบบข้ามระบบความปลอดภัย (verify=False เพื่อป้องกันปัญหา SSL Certificate เครือข่ายภายในหลุด)
+    async with httpx.AsyncClient(verify=False, follow_redirects=True) as client:
         try:
-            response = await client.get(target_url, headers=headers, timeout=10.0)
-            if response.status_code != 200:
-                raise HTTPException(status_code=404, detail="Image not found on ISIT server")
+            response = await client.get(target_url, headers=headers, timeout=15.0)
             
-            # ส่งไฟล์ภาพกลับไปให้หน้าเว็บแสดงผลตามประเภทไฟล์จริง (JPEG / PNG)
+            if response.status_code != 200:
+                # หากดึงภาพไม่สำเร็จ ให้ส่งภาพ Placeholder เปล่าขนาดมาตรฐานกลับไปแทนหน้าจอแตก
+                return StreamingResponse(
+                    content=iter([httpx.get(f"https://placehold.co/800x400/3b1e1b/ffffff?text={clean_path.split('/')[-1]}").content]),
+                    media_type="image/png"
+                )
+            
+            # ส่ง Binary ข้อมูลภาพสด ๆ ให้กับ Browser โดยตรง
             content_type = response.headers.get("Content-Type", "image/jpeg")
             return StreamingResponse(iter([response.content]), media_type=content_type)
+            
         except Exception:
-            raise HTTPException(status_code=500, detail="Error fetching image from source")
+            # กรณี Timeout หรือเกิด Network Error
+            raise HTTPException(status_code=500, detail="Unable to connect to ISIT image stream")
 
 
 # =========================================================================
-# 🏠 MAIN PORTAL ROUTE
+# 🏠 PORTAL DISPLAY
 # =========================================================================
 @app.get("/", response_class=HTMLResponse)
 def render_exact_isit_portal():
-    # เรียกใช้งานภาพผ่าน /proxy-image?path=... แทนการใส่ลิงก์ตรง เพื่อข้ามระบบบล็อกภาพ
-    slide1_url = "/proxy-image?path=images/banner/banner-isit-iiu-survey2569.jpg"
-    slide2_url = "/proxy-image?path=images/banner/banner-isit-iiu-warning.jpg"
+    # เรียกภาพผ่านเอนจิน /get-isit-image?path= โดยไม่ต้องมีไฟล์อยู่ในโปรเจกต์
+    slide1_url = "/get-isit-image?path=images/banner/banner-isit-iiu-survey2569.jpg"
+    slide2_url = "/get-isit-image?path=images/banner/banner-isit-iiu-warning.jpg"
     
-    news1_url = "/proxy-image?path=images/news/ftiat-q2-2026.jpg"
-    news2_url = "/proxy-image?path=images/news/oecd-thailand-2026.jpg"
+    news1_url = "/get-isit-image?path=images/news/ftiat-q2-2026.jpg"
+    news2_url = "/get-isit-image?path=images/news/oecd-thailand-2026.jpg"
     
-    stats_url = "/proxy-image?path=images/stats/stats-thumbnail-dashboard.jpg"
+    stats_url = "/get-isit-image?path=images/stats/stats-thumbnail-dashboard.jpg"
 
-    # พันธมิตร/สมาชิกสถาบันเหล็กฯ
+    # รายชื่อพันธมิตรดั้งเดิม
     partner_logos = [
         {"name": "SYS Steel", "img": "logo-sys.png"},
         {"name": "Pacific Pipe", "img": "logo-pacific.png"},
@@ -64,10 +74,10 @@ def render_exact_isit_portal():
     partner_html = ""
     for partner in partner_logos:
         partner_html += f"""
-        <img src="/proxy-image?path=images/partners/{partner['img']}" 
+        <img src="/get-isit-image?path=images/partners/{partner['img']}" 
              class="partner-logo" 
              alt="{partner['name']}"
-             onerror="this.onerror=null; this.src='https://placehold.co/140x50/3b1e1b/ffffff?text={partner['name'].replace(' ', '+')}';">
+             onerror="this.onerror=null; this.insertAdjacentHTML('afterend', '<div class=\\'partner-box-fallback\\'>{partner['name']}</div>'); this.remove();">
         """
 
     html_layout = f"""
@@ -129,6 +139,8 @@ def render_exact_isit_portal():
             .partners-title {{ font-size: 12.5px; font-weight: bold; color: #555555; border-bottom: 1px solid #eef0f2; padding-bottom: 8px; margin-bottom: 12px; }}
             .partners-flex {{ display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; align-items: center; }}
             .partner-logo {{ height: 38px; width: auto; object-fit: contain; }}
+            
+            .partner-box-fallback {{ background-color: #3b1e1b; color: #ffffff; font-weight: bold; font-size: 12px; padding: 8px 14px; border-radius: 3px; display: inline-block; }}
 
             .footer-strip {{ background-color: #3b1e1b; color: #d0c4c2; text-align: center; padding: 18px 20px; font-size: 11.5px; line-height: 1.6; border-top: 4px solid #ffcc00; margin-top: 30px; }}
             .footer-strip a {{ color: #ffffff; text-decoration: none; }}
@@ -239,7 +251,7 @@ def render_exact_isit_portal():
 
         <div class="footer-strip">
             © 2026 <a href="https://www.isit.or.th" target="_blank" style="color:#fff; font-weight: bold;">IRON AND STEEL INSTITUTE OF THAILAND</a>. ALL RIGHTS RESERVED.<br>
-            <span style="font-size: 10px; color: #a48e8b;">พัฒนาระบบ Bypass รูปภาพข้ามเซิร์ฟเวอร์อัตโนมัติด้วย FastAPI Image Proxy และ Render Cloud</span>
+            <span style="font-size: 10px; color: #a48e8b;">ระบบเชื่อมโยงภาพสตรีมมิ่งผ่าน Proxy Engine ไร้การบันทึกไฟล์ถาวรบนคลาวด์</span>
         </div>
 
         <script src="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.js"></script>
