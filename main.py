@@ -1,29 +1,55 @@
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse, StreamingResponse
+import httpx
 
-app = FastAPI(title="ISIT IIU Portal - Live Production Mirror")
+app = FastAPI(title="ISIT IIU Portal - Live Image Proxy Mirror")
 
 BASE_URL = "https://iiu.isit.or.th"
 
+# =========================================================================
+# 🛠️ IMAGE PROXY ROUTE: แก้ไขปัญหาภาพแตก/ภาพไม่มาจากเซิร์ฟเวอร์ดั้งเดิม
+# ทำหน้าที่ดาวน์โหลดภาพจาก ISIT ดั้งเดิมหลังบ้าน แล้วส่งต่อให้หน้าเว็บแสดงผล
+# =========================================================================
+@app.get("/proxy-image")
+async def proxy_image(path: str):
+    # ป้องกันการใส่ path สลับซับซ้อนเกินไป
+    clean_path = path.lstrip("/")
+    target_url = f"{BASE_URL}/{clean_path}"
+    
+    # จำลอง Header ให้เหมือนเบราว์เซอร์ปกติเปิดดู เพื่อเลี่ยงการโดนบล็อก
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer": BASE_URL
+    }
+    
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(target_url, headers=headers, timeout=10.0)
+            if response.status_code != 200:
+                raise HTTPException(status_code=404, detail="Image not found on ISIT server")
+            
+            # ส่งไฟล์ภาพกลับไปให้หน้าเว็บแสดงผลตามประเภทไฟล์จริง (JPEG / PNG)
+            content_type = response.headers.get("Content-Type", "image/jpeg")
+            return StreamingResponse(iter([response.content]), media_type=content_type)
+        except Exception:
+            raise HTTPException(status_code=500, detail="Error fetching image from source")
+
+
+# =========================================================================
+# 🏠 MAIN PORTAL ROUTE
+# =========================================================================
 @app.get("/", response_class=HTMLResponse)
 def render_exact_isit_portal():
-    # =========================================================================
-    # กำหนด URL รูปภาพจริงจาก Server ต้นทางของสถาบันเหล็กฯ (iiu.isit.or.th)
-    # แก้ไขปัญหา Path แตกด้วยการระบุ Full Absolute Domain
-    # =========================================================================
+    # เรียกใช้งานภาพผ่าน /proxy-image?path=... แทนการใส่ลิงก์ตรง เพื่อข้ามระบบบล็อกภาพ
+    slide1_url = "/proxy-image?path=images/banner/banner-isit-iiu-survey2569.jpg"
+    slide2_url = "/proxy-image?path=images/banner/banner-isit-iiu-warning.jpg"
     
-    # 1. ภาพแบนเนอร์หลักและภาพสไลเดอร์กิจกรรม
-    slide1_url = f"{BASE_URL}/images/banner/banner-isit-iiu-survey2569.jpg"
-    slide2_url = f"{BASE_URL}/images/banner/banner-isit-iiu-warning.jpg"
+    news1_url = "/proxy-image?path=images/news/ftiat-q2-2026.jpg"
+    news2_url = "/proxy-image?path=images/news/oecd-thailand-2026.jpg"
     
-    # 2. ภาพหน้าปกข่าวสารวงการเหล็กไทยและเหล็กโลก (ข่าวเด่นประจำปี 2026)
-    news1_url = f"{BASE_URL}/images/news/ftiat-q2-2026.jpg"
-    news2_url = f"{BASE_URL}/images/news/oecd-thailand-2026.jpg"
-    
-    # 3. ภาพกราฟิก/สถิติ
-    stats_url = f"{BASE_URL}/images/stats/stats-thumbnail-dashboard.jpg"
+    stats_url = "/proxy-image?path=images/stats/stats-thumbnail-dashboard.jpg"
 
-    # 4. รายชื่อและโลโก้พันธมิตร/สมาชิกสถาบันเหล็กฯ (เรียงตามจริงในระบบ)
+    # พันธมิตร/สมาชิกสถาบันเหล็กฯ
     partner_logos = [
         {"name": "SYS Steel", "img": "logo-sys.png"},
         {"name": "Pacific Pipe", "img": "logo-pacific.png"},
@@ -38,13 +64,12 @@ def render_exact_isit_portal():
     partner_html = ""
     for partner in partner_logos:
         partner_html += f"""
-        <img src="{BASE_URL}/images/partners/{partner['img']}" 
+        <img src="/proxy-image?path=images/partners/{partner['img']}" 
              class="partner-logo" 
              alt="{partner['name']}"
              onerror="this.onerror=null; this.src='https://placehold.co/140x50/3b1e1b/ffffff?text={partner['name'].replace(' ', '+')}';">
         """
 
-    # โครงสร้าง HTML และการตกแต่ง CSS เพื่อให้เหมือนเว็บจริง 100%
     html_layout = f"""
     <!DOCTYPE html>
     <html lang="th">
@@ -214,7 +239,7 @@ def render_exact_isit_portal():
 
         <div class="footer-strip">
             © 2026 <a href="https://www.isit.or.th" target="_blank" style="color:#fff; font-weight: bold;">IRON AND STEEL INSTITUTE OF THAILAND</a>. ALL RIGHTS RESERVED.<br>
-            <span style="font-size: 10px; color: #a48e8b;">พัฒนาระบบเชื่อมโยงข้อมูลหลังบ้านอัตโนมัติด้วย FastAPI และปรับปรุงโครงสร้าง Layout ผ่าน Render Cloud</span>
+            <span style="font-size: 10px; color: #a48e8b;">พัฒนาระบบ Bypass รูปภาพข้ามเซิร์ฟเวอร์อัตโนมัติด้วย FastAPI Image Proxy และ Render Cloud</span>
         </div>
 
         <script src="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.js"></script>
