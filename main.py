@@ -8,29 +8,30 @@ BASE_URL = "https://iiu.isit.or.th"
 @app.get("/", response_class=HTMLResponse)
 def render_exact_isit_portal():
     # =========================================================================
-    # ลิงก์รูปภาพสำรองที่ไม่มีการบล็อกสิทธิ์การเข้าถึง (Hotlinking Allowed)
-    # แก้ปัญหาภาพแตก/ภาพไม่ขึ้น บนหน้าเว็บจำลอง 100%
+    # เปลี่ยนมาใช้บริการ placehold.co (รองรับ HTTPS 100% บน Render ป้องกัน Mixed Content บล็อกภาพ)
+    # พร้อมใส่ ?v=2 บังคับ Browser ล้าง Cache เก่าทันที
     # =========================================================================
     
-    # 1. ภาพแบนเนอร์สไลเดอร์หลัก
-    slide1_url = "https://picsum.photos/id/1050/1200/500"  # ภาพแนววิศวกรรม/อุตสาหกรรม
-    slide2_url = "https://picsum.photos/id/1067/1200/500"  # ภาพแนวดิจิทัล/เทคโนโลยี
+    # 1. ภาพแบนเนอร์สไลเดอร์หลัก (ปรับขนาดให้กระชับเข้ากับกรอบสไลด์)
+    slide1_url = "https://placehold.co/800x350/3b1e1b/ffffff?text=ISIT+Banner+Slide+1&v=2"
+    slide2_url = "https://placehold.co/800x350/8f7671/ffffff?text=ISIT+Banner+Slide+2&v=2"
     
-    # 2. ภาพหน้าปกข่าวสาร
-    news1_url = "https://picsum.photos/id/486/600/400"   # ภาพบรรยากาศการทำงาน
-    news2_url = "https://picsum.photos/id/1074/600/400"  # ภาพตึกสำนักงานเชิงธุรกิจ
+    # 2. ภาพหน้าปกข่าวสาร 2 ข่าว
+    news1_url = "https://placehold.co/400x250/3b1e1b/ffffff?text=News+1+Cover&v=2"
+    news2_url = "https://placehold.co/400x250/8f7671/ffffff?text=News+2+Cover&v=2"
     
     # 3. ภาพสถิติ/กราฟ
-    stats_url = "https://picsum.photos/id/180/500/600"   # ภาพแล็ปท็อปวิเคราะห์ข้อมูล
+    stats_url = "https://placehold.co/300x230/e0e0e0/333333?text=Stats+Graph&v=2"
 
-    # 4. ลูปสำหรับสร้างโลโก้พันธมิตร/สมาชิกด้านล่าง (ผ่านบริการ Placeholder)
+    # 4. ลูปสำหรับสร้างโลโก้พันธมิตร/สมาชิกด้านล่าง 
     partner_logos = [
         "SYS Steel", "Pacific Pipe", "Hidaka Yookoo", "SSI Steel", 
         "Nippon Steel", "Danieli", "TWC", "Mitr Steel"
     ]
     partner_html = ""
     for logo_name in partner_logos:
-        partner_html += f'<img src="https://via.placeholder.com/140x50/3b1e1b/ffffff?text={logo_name.replace(" ", "+")}" class="partner-logo" alt="{logo_name}">'
+        # ใช้ placehold.co มั่นใจได้ว่าภาพไม่แตกและไม่โดนบล็อกแน่นอน
+        partner_html += f'<img src="https://placehold.co/140x50/3b1e1b/ffffff?text={logo_name.replace(" ", "+")}&v=2" class="partner-logo" alt="{logo_name}">'
 
     # โครงสร้าง Layout ภาษา HTML และ CSS 
     html_layout = f"""
@@ -60,6 +61,7 @@ def render_exact_isit_portal():
             
             .slider-block {{ background-color: #ffffff; border: 1px solid #cccccc; padding: 8px; border-radius: 4px; box-shadow: 0px 1px 4px rgba(0,0,0,0.06); overflow: hidden; height: 350px; }}
             .swiper {{ width: 100%; height: 100%; border-radius: 2px; }}
+            .swiper-slide {{ display: flex; align-items: center; justify-content: center; background: #f0f0f0; }}
             .swiper-slide img {{ width: 100%; height: 100%; display: block; object-fit: cover; }}
             
             .side-block {{ display: flex; flex-direction: column; gap: 12px; }}
