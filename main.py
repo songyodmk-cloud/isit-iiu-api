@@ -1,72 +1,24 @@
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, StreamingResponse
-import requests
-import urllib3
-import io
+from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
 
-# ปิดการแจ้งเตือน SSL
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-app = FastAPI(title="ISIT IIU Portal - Real Image Stream")
+app = FastAPI(title="ISIT IIU Portal - Client Direct Stream")
 
 BASE_URL = "https://iiu.isit.or.th"
 
-@app.get("/proxy-img")
-def proxy_image(url: str):
-    """
-    ฟังก์ชัน Bypass ระบบสกัดกั้นเพื่อดึงรูปภาพจริงจากเซิร์ฟเวอร์หลัก
-    """
-    # จัดการล้างช่องว่างใน URL เผื่อกรณีลิงก์ฝั่งภาษาไทยมีปัญหา
-    target_url = url.strip()
-    
-    # ชุด Headers ระดับสูงสุด จำลองว่าเป็น Google Chrome บน Windows 11 ของจริง
-    # เพิ่มค่า Sec-Fetch เพื่อให้เซิร์ฟเวอร์ปลายทางมองว่าเป็นการคลิกดูรูปภาพตามปกติ ไม่ใช่บอทดึงข้อมูล
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-        "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-        "Accept-Language": "th-TH,th;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Cache-Control": "max-age=0",
-        "Connection": "keep-alive",
-        "Referer": "https://iiu.isit.or.th/",
-        "Sec-Ch-Ua": '"Not/A)Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"',
-        "Sec-Ch-Ua-Mobile": "?0",
-        "Sec-Ch-Ua-Platform": '"Windows"',
-        "Sec-Fetch-Dest": "image",
-        "Sec-Fetch-Mode": "no-cors",
-        "Sec-Fetch-Site": "same-origin"
-    }
-    
-    try:
-        # ยิงดึงรูปจริง ( stream=True เพื่อทยอยโหลดข้อมูลดิบป้องกันข้อมูลภาพขาดช่วง)
-        response = requests.get(target_url, headers=headers, verify=False, timeout=10, stream=True)
-        
-        if response.status_code == 200:
-            # คืนค่าไฟล์รูปภาพจริงกลับไปแสดงบนหน้าเว็บทันที
-            return StreamingResponse(
-                io.BytesIO(response.content), 
-                media_type=response.headers.get("Content-Type", "image/jpeg")
-            )
-        else:
-            # หากเซิร์ฟเวอร์ปลายทางส่ง Error code อื่นมา ให้ส่ง Status พังตามจริง
-            raise HTTPException(status_code=response.status_code, detail="Cannot fetch original image")
-            
-    except Exception as e:
-        # หากเชื่อมต่อไม่ได้เลย ให้โยน Error ออกไป
-        raise HTTPException(status_code=500, detail=str(e))
-
 @app.get("/", response_class=HTMLResponse)
 def render_exact_isit_portal():
-    # โครงสร้างชุดข้อมูลและ HTML Layout (คงเดิมตามโครงสร้างสไลเดอร์ที่คุณทำไว้)
-    slide1_proxied = f"/proxy-img?url={BASE_URL}/images/banner/Banner-IIU-2021.jpg"
-    slide2_proxied = f"/proxy-img?url={BASE_URL}/images/banner/Banner_iiu_01.jpg"
-    news1_proxied = f"/proxy-img?url={BASE_URL}/Upload/news/Cover/8223.jpg"
-    news2_proxied = f"/proxy-img?url={BASE_URL}/Upload/news/Cover/8224.jpg"
-    stats_proxied = f"/proxy-img?url={BASE_URL}/images/graph_sample.png" # เปลี่ยนมาใช้สถิติจริงจากเว็บหลักหากมีไฟล์
+    # ดึงรูปจาก URL ตรงของสถาบันทั้งหมด โดยไม่ผ่านสคริปต์หลังบ้านที่โดนบล็อกไอพี
+    slide1_url = f"{BASE_URL}/images/banner/Banner-IIU-2021.jpg"
+    slide2_url = f"{BASE_URL}/images/banner/Banner_iiu_01.jpg"
+    news1_url = f"{BASE_URL}/Upload/news/Cover/8223.jpg"
+    news2_url = f"{BASE_URL}/Upload/news/Cover/8224.jpg"
+    stats_url = f"{BASE_URL}/images/graph_sample.png" 
 
     partner_logos = ["sys.png", "pacific.png", "hidaka.png", "ssi.png", "nippon.png", "danieli.png", "twc.png", "mitr.png"]
     partner_html = ""
     for logo in partner_logos:
-        partner_html += f'<img src="/proxy-img?url={BASE_URL}/images/link/{logo}" class="partner-logo">'
+        # ใช้ referrerpolicy="no-referrer" เพื่อหลบเลี่ยงระบบบล็อก Hotlinking ของเว็บหลัก
+        partner_html += f'<img src="{BASE_URL}/images/link/{logo}" referrerpolicy="no-referrer" class="partner-logo" alt="Partner">'
 
     html_layout = f"""
     <!DOCTYPE html>
@@ -93,9 +45,10 @@ def render_exact_isit_portal():
             .wrapper {{ max-width: 1140px; margin: 20px auto; padding: 0 15px; display: flex; flex-direction: column; gap: 20px; }}
             .section-upper {{ display: grid; grid-template-columns: 7.2fr 2.8fr; gap: 15px; }}
             
-            .slider-block {{ background-color: #ffffff; border: 1px solid #cccccc; padding: 8px; border-radius: 4px; box-shadow: 0px 1px 4px rgba(0,0,0,0.06); overflow: hidden; min-height: 350px; }}
+            /* ปรับขนาดบล็อกสไลเดอร์ให้ยืดหยุ่นตามรูปภาพจริง ไม่ให้บีบจนแฟบ */
+            .slider-block {{ background-color: #ffffff; border: 1px solid #cccccc; padding: 8px; border-radius: 4px; box-shadow: 0px 1px 4px rgba(0,0,0,0.06); overflow: hidden; min-height: 200px; }}
             .swiper {{ width: 100%; height: 100%; border-radius: 2px; }}
-            .swiper-slide img {{ width: 100%; height: auto; display: block; object-fit: cover; }}
+            .swiper-slide img {{ width: 100%; height: auto; display: block; object-fit: contain; max-height: 400px; margin: 0 auto; }}
             
             .side-block {{ display: flex; flex-direction: column; gap: 12px; }}
             .link-card-btn {{ background-color: #ffffff; border: 1px solid #cccccc; padding: 14px 16px; text-decoration: none; color: #333333; font-size: 13px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; border-radius: 4px; }}
@@ -160,10 +113,10 @@ def render_exact_isit_portal():
                     <div class="swiper mySwiper">
                         <div class="swiper-wrapper">
                             <div class="swiper-slide">
-                                <img src="{slide1_proxied}" alt="Banner Slide 1">
+                                <img src="{slide1_url}" referrerpolicy="no-referrer" alt="Banner Slide 1">
                             </div>
                             <div class="swiper-slide">
-                                <img src="{slide2_proxied}" alt="Banner Slide 2">
+                                <img src="{slide2_url}" referrerpolicy="no-referrer" alt="Banner Slide 2">
                             </div>
                         </div>
                         <div class="swiper-pagination"></div>
@@ -193,7 +146,7 @@ def render_exact_isit_portal():
                     <div class="news-grid">
                         <div class="news-card-item">
                             <div class="news-thumb">
-                                <img src="{news1_proxied}" alt="News 1">
+                                <img src="{news1_url}" referrerpolicy="no-referrer" alt="News 1">
                                 <div class="date-tag">10.06.2026</div>
                             </div>
                             <div class="news-info">
@@ -202,7 +155,7 @@ def render_exact_isit_portal():
                         </div>
                         <div class="news-card-item">
                             <div class="news-thumb">
-                                <img src="{news2_proxied}" alt="News 2">
+                                <img src="{news2_url}" referrerpolicy="no-referrer" alt="News 2">
                                 <div class="date-tag">10.06.2026</div>
                             </div>
                             <div class="news-info">
@@ -217,7 +170,7 @@ def render_exact_isit_portal():
                         <h2>📊 ข้อมูลสถิติ</h2>
                     </div>
                     <div class="stats-container">
-                        <img src="{stats_proxied}" alt="Stats">
+                        <img src="{stats_url}" referrerpolicy="no-referrer" alt="Stats">
                     </div>
                 </div>
             </div>
