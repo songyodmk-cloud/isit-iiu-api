@@ -7,31 +7,31 @@ import io
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-app = FastAPI(title="ISIT IIU Portal Proxy Fixed Version")
+app = FastAPI(title="ISIT IIU Portal Proxy 100% Fixed")
 
 BASE_URL = "https://iiu.isit.or.th"
 TARGET_URL = f"{BASE_URL}/th/home.aspx"
 
-# ฟังก์ชันเซิร์ฟเวอร์สำหรับดึงภาพหลังบ้านเพื่อข้ามการบล็อก Hotlink ของเว็บหลัก
+# ฟังก์ชันเซิร์ฟเวอร์สำหรับดาวน์โหลดภาพจากฝั่งเซิร์ฟเวอร์หลักมาส่งต่อให้หน้าเว็บจำลอง (เลี่ยงการโดนบล็อก Hotlink)
 @app.get("/proxy-img")
 def proxy_image(url: str):
     try:
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Referer": BASE_URL
+            "Referer": BASE_URL,
+            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
         }
-        # ทำการร้องขอรูปภาพหลังบ้านในนามของเซิร์ฟเวอร์เพื่อไม่ให้ถูกบล็อก
-        response = requests.get(url, headers=headers, verify=False, timeout=5)
+        response = requests.get(url, headers=headers, verify=False, timeout=6)
         if response.status_code == 200:
             return StreamingResponse(io.BytesIO(response.content), media_type=response.headers.get("Content-Type", "image/jpeg"))
         else:
-            raise HTTPException(status_code=404, detail="Image not found on remote server")
+            raise HTTPException(status_code=404, detail="Image not found")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/", response_class=HTMLResponse)
 def render_exact_isit_portal():
-    # ข้อมูลข่าวและภาพปกปลายทางของจริง
+    # 1. ข้อมูลข่าวสารหลักพร้อมลิงก์ภาพต้นฉบับ
     news_data = [
         {
             "title": "ส.อ.ท. ชี้อุตฯ ไทย Q2/69 โดน 2 ขั้ว 'EV-Data Center' เด่น 'เหล็ก-สิ่งทอ' เจอแรงกดดัน",
@@ -47,17 +47,26 @@ def render_exact_isit_portal():
         }
     ]
 
-    # กำหนดอาเรย์แบนเนอร์ของแท้ที่สไลด์อยู่หน้าเว็บหลัก
+    # 2. ชุดลิงก์รูปภาพแบนเนอร์สำหรับใช้ทำภาพสไลด์ตรงกลาง
     banner_urls = [
         f"{BASE_URL}/images/banner/Banner-IIU-2021.jpg",
         f"{BASE_URL}/images/banner/Banner_iiu_01.jpg"
     ]
 
-    # ทำการแปลงลิงก์รูปภาพทั้งหมดให้วิ่งผ่านระบบ Proxy เพื่อความปลอดภัยภาพไม่แตกแน่นอน
-    proxied_banners = [f"/proxy-img?url={url}" for url in banner_urls]
-    proxied_news_1_img = f"/proxy-img?url={news_data[0]['img']}"
-    proxied_news_2_img = f"/proxy-img?url={news_data[1]['img']}"
-    proxied_stats_img = f"/proxy-img?url=https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=400"
+    # 3. จัดทำชุดข้อมูลโลโก้พันธมิตรด้านล่างเว็บ
+    partner_logos = ["sys.png", "pacific.png", "hidaka.png", "ssi.png", "nippon.png", "danieli.png", "twc.png", "mitr.png"]
+
+    # --- บังคับแปลงลิงก์รูปภาพทุกจุดบนหน้าเว็บให้วิ่งผ่านระบบ Proxy ทั้งหมด ---
+    slide1_proxied = f"/proxy-img?url={banner_urls[0]}"
+    slide2_proxied = f"/proxy-img?url={banner_urls[1]}"
+    news1_proxied = f"/proxy-img?url={news_data[0]['img']}"
+    news2_proxied = f"/proxy-img?url={news_data[1]['img']}"
+    stats_proxied = "/proxy-img?url=https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=400"
+
+    # ลูปสร้างแท็กรูปภาพพันธมิตรแบบต่อสตริงผ่านระบบ Proxy
+    partner_html = ""
+    for logo in partner_logos:
+        partner_html += f'<img src="/proxy-img?url={BASE_URL}/images/link/{logo}" class="partner-logo" onerror="this.style.display=\'none\'">'
 
     html_layout = f"""
     <!DOCTYPE html>
@@ -68,7 +77,7 @@ def render_exact_isit_portal():
         <title>ศูนย์ข้อมูลเชิงลึกอุตสาหกรรมเหล็กไทย (ISIT IIU)</title>
         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.css" />
         <style>
-            body {{ font-family: 'Helvetica Neue', Helvetica, Arial, Tahoma, sans-serif; margin: 0; padding: 0; background-color: #ededed; color: #333333; }}
+            body {{ font-family: Tahoma, Geneva, sans-serif; margin: 0; padding: 0; background-color: #ededed; color: #333333; }}
             .top-line {{ height: 4px; background-color: #3b1e1b; }}
             .header-container {{ background-color: #ffffff; padding: 15px 12%; border-bottom: 1px solid #e0e0e0; display: flex; align-items: center; justify-content: space-between; }}
             .brand-section {{ display: flex; align-items: center; gap: 12px; }}
@@ -84,10 +93,10 @@ def render_exact_isit_portal():
             .wrapper {{ max-width: 1140px; margin: 20px auto; padding: 0 15px; display: flex; flex-direction: column; gap: 20px; }}
             .section-upper {{ display: grid; grid-template-columns: 7.2fr 2.8fr; gap: 15px; }}
             
-            /* พื้นที่ควบคุมสไลเดอร์รูปภาพตรงกลาง */
-            .slider-block {{ background-color: #ffffff; border: 1px solid #cccccc; padding: 8px; border-radius: 4px; box-shadow: 0px 1px 4px rgba(0,0,0,0.06); overflow: hidden; max-width: 790px; }}
+            /* พื้นที่แสดงผลสไลเดอร์แบนเนอร์ภาพ */
+            .slider-block {{ background-color: #ffffff; border: 1px solid #cccccc; padding: 8px; border-radius: 4px; box-shadow: 0px 1px 4px rgba(0,0,0,0.06); overflow: hidden; }}
             .swiper {{ width: 100%; height: auto; border-radius: 2px; }}
-            .swiper-slide img {{ width: 100%; height: auto; display: block; object-fit: contain; }}
+            .swiper-slide img {{ width: 100%; height: auto; display: block; object-fit: cover; }}
             
             .side-block {{ display: flex; flex-direction: column; gap: 12px; }}
             .link-card-btn {{ background-color: #ffffff; border: 1px solid #cccccc; padding: 14px 16px; text-decoration: none; color: #333333; font-size: 13px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; border-radius: 4px; }}
@@ -155,12 +164,12 @@ def render_exact_isit_portal():
                         <div class="swiper-wrapper">
                             <div class="swiper-slide">
                                 <a href="{BASE_URL}/th/news/Press%20Releases%20News.aspx" target="_blank">
-                                    <img src="{proxied_banners[0]}" alt="Banner Slide 1">
+                                    <img src="{slide1_proxied}" alt="Banner Slide 1">
                                 </a>
                             </div>
                             <div class="swiper-slide">
                                 <a href="{BASE_URL}/th/news/Iron%20Industry%20News.aspx" target="_blank">
-                                    <img src="{proxied_banners[1]}" alt="Banner Slide 2">
+                                    <img src="{slide2_proxied}" alt="Banner Slide 2">
                                 </a>
                             </div>
                         </div>
@@ -196,7 +205,7 @@ def render_exact_isit_portal():
                     <div class="news-grid">
                         <div class="news-card-item">
                             <div class="news-thumb">
-                                <img src="{proxied_news_1_img}" alt="News 1 Cover">
+                                <img src="{news1_proxied}" alt="News 1 Cover">
                                 <div class="date-tag">{news_data[0]['date']}</div>
                             </div>
                             <div class="news-info">
@@ -205,7 +214,7 @@ def render_exact_isit_portal():
                         </div>
                         <div class="news-card-item">
                             <div class="news-thumb">
-                                <img src="{proxied_news_2_img}" alt="News 2 Cover">
+                                <img src="{news2_proxied}" alt="News 2 Cover">
                                 <div class="date-tag">{news_data[1]['date']}</div>
                             </div>
                             <div class="news-info">
@@ -221,7 +230,7 @@ def render_exact_isit_portal():
                     </div>
                     <div class="stats-container">
                         <a href="{BASE_URL}/th/statistics/Stat-Import-Export.aspx" target="_blank">
-                            <img src="{proxied_stats_img}" alt="ISIT Stats Graphic Preview">
+                            <img src="{stats_proxied}" alt="ISIT Stats Graphic Preview">
                         </a>
                     </div>
                 </div>
@@ -230,12 +239,7 @@ def render_exact_isit_portal():
             <div class="partners-panel">
                 <div class="partners-title">🤝 พันธมิตร / สมาชิกสถาบันเหล็กและเหล็กกล้าแห่งประเทศไทย</div>
                 <div class="partners-flex">
-                    <img src="/proxy-img?url={BASE_URL}/images/link/sys.png" class="partner-logo">
-                    <img src="/proxy-img?url={BASE_URL}/images/link/pacific.png" class="partner-logo">
-                    <img src="/proxy-img?url={BASE_URL}/images/link/hidaka.png" class="partner-logo">
-                    <img src="/proxy-img?url={BASE_URL}/images/link/ssi.png" class="partner-logo">
-                    <img src="/proxy-img?url={BASE_URL}/images/link/nippon.png" class="partner-logo">
-                    <img src="/proxy-img?url={BASE_URL}/images/link/danieli.png" class="partner-logo">
+                    {partner_html}
                 </div>
             </div>
         </div>
@@ -248,6 +252,7 @@ def render_exact_isit_portal():
         <script>
             var swiper = new Swiper(".mySwiper", {{
                 loop: true,
+                centeredSlides: true,
                 autoplay: {{
                     delay: 3000,
                     disableOnInteraction: false,
